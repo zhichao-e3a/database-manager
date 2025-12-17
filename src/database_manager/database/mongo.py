@@ -147,6 +147,7 @@ class MongoDBConnector:
             self,
             coll_name   : str,
             records     : List[Dict[str, Any]],
+            id_fields   : List[str]=None,
             fields      : Optional[List[str]] = None,
             batch_size  : Optional[int] = 500
 
@@ -160,24 +161,22 @@ class MongoDBConnector:
 
                 to_insert = dict(item)
 
-                if coll_name == "watermarks":
-
-                    _id = item["pipeline_name"]
-                    to_insert.pop("pipeline_name")
-
-                    h = await asyncio.to_thread(self._fingerprint, to_insert, fields)
-
-                else:
-
+                if id_fields is None:
                     _id = item.get("_id")
                     to_insert.pop("_id")
 
-                    try:
-                        to_insert.pop("doc_hash"); to_insert.pop('utime') ; to_insert.pop('ctime')
-                    except KeyError:
-                        pass
+                else:
+                    _id = ""
+                    for f in id_fields:
+                        _id += item.get(f)
+                        to_insert.pop(f)
 
-                    h = await asyncio.to_thread(self._fingerprint, to_insert, fields)
+                try:
+                    to_insert.pop("doc_hash"); to_insert.pop('utime') ; to_insert.pop('ctime')
+                except KeyError:
+                    pass
+
+                h = await asyncio.to_thread(self._fingerprint, to_insert, fields)
 
                 op = UpdateOne(
                     {
