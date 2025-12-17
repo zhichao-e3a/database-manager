@@ -1,5 +1,3 @@
-from config.configs import DB_CONFIG
-
 import pandas as pd
 from contextlib import contextmanager
 
@@ -9,17 +7,26 @@ from sqlalchemy.engine import URL
 
 class SQLDBConnector:
 
-    def __init__(self):
-        pass
+    def __init__(self, cfg):
+
+        self._ssh_host  = cfg["SSH_HOST"]
+        self._ssh_port  = cfg["SSH_PORT"]
+        self._ssh_user  = cfg["SSH_USER"]
+        self._ssh_pkey  = cfg["SSH_PKEY"]
+        self._db_host   = cfg["DB_HOST"]
+        self._db_port   = cfg["DB_PORT"]
+        self._db_user   = cfg["DB_USER"]
+        self._db_pass   = cfg["DB_PASS"]
+        self._db_name   = cfg["DB_NAME"]
 
     @contextmanager
     def ssh_tunnel(self):
 
         tunnel = SSHTunnelForwarder(
-            ssh_address_or_host=(DB_CONFIG['SSH_HOST'], DB_CONFIG['SSH_PORT']),
-            ssh_username=DB_CONFIG['SSH_USER'],
-            ssh_pkey=DB_CONFIG['SSH_PKEY'],
-            remote_bind_address=(DB_CONFIG['DB_HOST'], DB_CONFIG['DB_PORT'])
+            ssh_address_or_host=(self._ssh_host, self._ssh_port),
+            ssh_username=self._ssh_user,
+            ssh_pkey=self._ssh_pkey,
+            remote_bind_address=(self._db_host, self._db_port)
         )
 
         try:
@@ -38,11 +45,11 @@ class SQLDBConnector:
 
             url = URL.create(
                 drivername="mysql+pymysql",
-                username=DB_CONFIG["DB_USER"],
-                password=DB_CONFIG["DB_PASS"],
+                username=self._db_user,
+                password=self._db_pass,
                 host="127.0.0.1",
                 port=local_bind_port,
-                database=DB_CONFIG["DB_NAME"],
+                database=self._db_name,
                 query={"charset": "utf8mb4"},
             )
 
@@ -53,9 +60,7 @@ class SQLDBConnector:
                 pool_recycle=3600,
                 pool_pre_ping=True,
                 future=True,
-                connect_args={
-                    "connect_timeout": 10,
-                }
+                connect_args={"connect_timeout": 10}
             )
 
             try:

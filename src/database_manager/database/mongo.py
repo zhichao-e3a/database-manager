@@ -1,5 +1,3 @@
-from config.configs import MONGO_CONFIG, REMOTE_MONGO_CONFIG, TEST_MONGO_CONFIG
-
 import json
 import hashlib
 from datetime import datetime
@@ -14,42 +12,19 @@ from pymongo.errors import AutoReconnect, BulkWriteError
 
 class MongoDBConnector:
 
-    def __init__(self, mode):
+    def __init__(self, cfg):
 
-        self.mode = mode
-        config = self._config()
-        self._client = AsyncIOMotorClient(
-            config["DB_HOST"],
-            minPoolSize = 5,
-            maxPoolSize = 50
-        )
-
-    def _config(self) -> Dict[str, Any]:
-
-        if self.mode == "remote":
-            return REMOTE_MONGO_CONFIG
-        elif self.mode == "local":
-            return MONGO_CONFIG
-        elif self.mode == "test":
-            return TEST_MONGO_CONFIG
-
-    @property
-    def client(self) -> AsyncIOMotorClient:
-        return self._client
+        self._host   = cfg["DB_HOST"]
+        self._db     = cfg["DB_NAME"]
+        self._client = AsyncIOMotorClient(self._host, minPoolSize=5, maxPoolSize=50)
 
     @asynccontextmanager
     async def resource(self, coll_name):
 
-        config  = self._config()
-        client  = self.client
-        await client.admin.command('ping')
-        db      = client[config["DB_NAME"]]
-        coll    = db[coll_name]
+        await self._client.admin.command('ping')
+        coll = self._client[self._db][coll_name]
 
-        try:
-            yield coll
-        finally:
-            pass
+        yield coll
 
     async def stream_all_documents(
 
@@ -77,13 +52,7 @@ class MongoDBConnector:
                     else:
                         q["_id"] = {"$gt": after_id}
 
-                return coll.find(
-                    filter = q,
-                    projection = projection,
-                    sort = sort,
-                    batch_size = batch_size,
-                    no_cursor_timeout = True,
-                )
+                return coll.find(filter=q, projection=projection, sort=sort, batch_size=batch_size, no_cursor_timeout=True)
 
             cursor = make_cursor(query)
             buf: List[Dict[str, Any]] = []
@@ -92,13 +61,15 @@ class MongoDBConnector:
 
             try:
                 while True:
+
                     try:
                         doc = await cursor.next()
+
                     except StopAsyncIteration:
                         break
+
                     except AutoReconnect:
-                        if retried:
-                            raise
+                        if retried: raise
                         await cursor.close()
                         await asyncio.sleep(0.5)
                         cursor = make_cursor(query, after_id=last_id)
@@ -106,15 +77,14 @@ class MongoDBConnector:
                         continue
 
                     buf.append(doc)
-                    if "_id" in doc:
-                        last_id = doc["_id"]
+
+                    if "_id" in doc: last_id = doc["_id"]
 
                     if len(buf) >= batch_size:
                         yield buf
                         buf = []
 
-                if buf:
-                    yield buf
+                if buf: yield buf
 
             finally:
                 await cursor.close()
@@ -133,35 +103,17 @@ class MongoDBConnector:
         async with self.resource(coll_name) as coll:
 
             try:
-                cursor = coll.find(
-                    filter = query,
-                    projection = projection,
-                    sort = sort,
-                    batch_size = batch_size,
-                    no_cursor_timeout = True
-                )
-
+                cursor = coll.find(filter=query, projection=projection, sort=sort, batch_size=batch_size, no_cursor_timeout=True)
                 return [doc async for doc in cursor]
 
             except AutoReconnect:
-
                 await asyncio.sleep(0.5)
-
-                cursor = coll.find(
-                    filter = query,
-                    projection = projection,
-                    sort = sort,
-                    batch_size = batch_size,
-                    no_cursor_timeout = True
-                )
-
-                if batch_size:
-                    cursor = cursor.batch_size(batch_size)
-
+                cursor = coll.find(filter=query, projection=projection, sort=sort, batch_size=batch_size, no_cursor_timeout=True)
+                if batch_size: cursor = cursor.batch_size(batch_size)
                 return [doc async for doc in cursor]
 
     @staticmethod
-    async def flush(coll, ops):
+    async def _flush(coll, ops):
 
         try:
             await coll.bulk_write(ops, ordered=False)
@@ -177,28 +129,12 @@ class MongoDBConnector:
             await coll.bulk_write(ops, ordered=False)
 
     @staticmethod
-    def _fingerprint(obj, hash_type):
+    def _fingerprint(obj, fields: Optional[List[str]]=None):
 
-        if hash_type == "measurement":
+        if fields is None:
+            return None
 
-            clean = {
-                k:v for k,v in obj.items() if k in {
-                    "edd",
-                    "add",
-                    "onset",
-                    "annotations",
-                    "notes"
-                }
-            }
-
-        elif hash_type == "watermark":
-
-            clean = {
-                k: v for k, v in obj.items() if k in {
-                    "last_utime",
-                    "last_job_id",
-                }
-            }
+        clean = {k:v for k,v in obj.items() if k in fields}
 
         blob = json.dumps(
             clean, sort_keys=True, indent=4, separators=(',', ': '), default=str
@@ -209,9 +145,10 @@ class MongoDBConnector:
     async def upsert_documents_hashed(
 
             self,
-            records: List[Dict[str, Any]],
-            coll_name: str,
-            batch_size: Optional[int] = 500
+            coll_name   : str,
+            records     : List[Dict[str, Any]],
+            fields      : Optional[List[str]] = None,
+            batch_size  : Optional[int] = 500
 
     ) -> None:
 
@@ -226,15 +163,13 @@ class MongoDBConnector:
                 if coll_name == "watermarks":
 
                     _id = item["pipeline_name"]
-
                     to_insert.pop("pipeline_name")
 
-                    h = await asyncio.to_thread(self._fingerprint, to_insert, "watermark")
+                    h = await asyncio.to_thread(self._fingerprint, to_insert, fields)
 
                 else:
 
                     _id = item.get("_id")
-
                     to_insert.pop("_id")
 
                     try:
@@ -242,34 +177,20 @@ class MongoDBConnector:
                     except KeyError:
                         pass
 
-                    h = await asyncio.to_thread(self._fingerprint, to_insert, "measurement")
+                    h = await asyncio.to_thread(self._fingerprint, to_insert, fields)
 
                 op = UpdateOne(
                     {
                         "_id": _id,
                         "$or" : [
-                            {
-                                "doc_hash" : {
-                                    "$ne" : h
-                                }
-                            },
-                            {
-                                "doc_hash" : {
-                                    "$exists" : False
-                                }
-                            }
+                            {"doc_hash": {"$ne": h}},
+                            {"doc_hash" : {"$exists" : False}}
                         ]
 
                     },
                     {
-                        "$set" : {
-                            **to_insert,
-                            "doc_hash" : h,
-                            "utime"    : datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        },
-                        "$setOnInsert": {
-                            "ctime" : datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        }
+                        "$set" : {**to_insert, "doc_hash" : h, "utime": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
+                        "$setOnInsert": {"ctime": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
                     },
                     upsert=True
                 )
@@ -277,56 +198,12 @@ class MongoDBConnector:
                 ops.append(op)
 
                 if len(ops) >= batch_size:
-                    await self.flush(coll, ops)
+                    await self._flush(coll, ops)
                     ops = []
 
-            if ops:
-                await self.flush(coll, ops)
+            if ops: await self._flush(coll, ops)
 
-    async def upsert_documents(
-
-            self,
-            records: List[Dict[str, Any]],
-            coll_name: str,
-            id_fields: List[str],
-            batch_size: Optional[int] = 1000
-
-    ) -> None:
-
-        async with self.resource(coll_name) as coll:
-
-            ops = []
-
-            for item in records:
-
-                _id = ''.join([item[f] for f in id_fields])
-
-                op = UpdateOne(
-                    {
-                        "_id": _id
-                    },
-                    {
-                        "$set": item
-                    },
-                    upsert=True
-                )
-
-                ops.append(op)
-
-                if len(ops) >= batch_size:
-                    await self.flush(coll, ops)
-                    ops = []
-
-            if ops:
-                await self.flush(coll, ops)
-
-    async def delete_document(
-
-            self,
-            coll_name: str,
-            query: Optional[Dict[str, Any]] = {}
-
-    ):
+    async def delete_document(self, coll_name: str, query: Optional[Dict[str, Any]]={}):
 
         async with self.resource(coll_name) as coll:
 
@@ -339,13 +216,7 @@ class MongoDBConnector:
                 res = await coll.delete_one(query)
                 return res.deleted_count
 
-    async def delete_all_documents(
-
-            self,
-            coll_name: str,
-            query: Optional[Dict[str, Any]] = {}
-
-    ) -> None:
+    async def delete_all_documents(self, coll_name: str, query: Optional[Dict[str, Any]]={}) -> None:
 
         async with self.resource(coll_name) as coll:
 
