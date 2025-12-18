@@ -169,7 +169,6 @@ class MongoDBConnector:
                     _id = ""
                     for f in id_fields:
                         _id += item.get(f)
-                        to_insert.pop(f)
 
                 try:
                     to_insert.pop("doc_hash"); to_insert.pop('utime') ; to_insert.pop('ctime')
