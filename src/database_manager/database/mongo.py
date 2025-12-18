@@ -147,7 +147,7 @@ class MongoDBConnector:
             self,
             coll_name   : str,
             records     : List[Dict[str, Any]],
-            id_fields   : List[str]=None,
+            id_fields   : Optional[List[str]]=None,
             fields      : Optional[List[str]] = None,
             batch_size  : Optional[int] = 500
 
