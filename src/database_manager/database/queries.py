@@ -37,7 +37,8 @@ r.contraction_url,
 r.hb_baby_url,
 r.raw_fetal_url,
 r.basic_info,
-r.conclusion
+r.conclusion,
+r.utime
 FROM
 extant_future_user.user AS uu
 INNER JOIN
@@ -51,17 +52,15 @@ AND r.start_ts BETWEEN UNIX_TIMESTAMP({start}) AND UNIX_TIMESTAMP({end})
 
 RECRUITED_PATIENTS_QUERY = """
 SELECT
-u.mobile,
+uu.mobile,
 FROM_UNIXTIME(r.start_ts) AS m_time,
 r.basic_info,
 r.conclusion
-FROM extant_future_user.user AS u
+FROM extant_future_user.user AS uu
 JOIN extant_future_data.origin_data_record AS r
 ON u.id = r.user_id
-WHERE
-u.mobile
-IN
-({mobile_query_str})
+WHERE u.mobile
+IN ({mobile_query_str})
 """
 
 HISTORICAL_PATIENTS_QUERY = """

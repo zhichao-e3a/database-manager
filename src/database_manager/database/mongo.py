@@ -52,7 +52,7 @@ class MongoDBConnector:
                     else:
                         q["_id"] = {"$gt": after_id}
 
-                return coll.find(filter=q, projection=projection, sort=sort, batch_size=batch_size, no_cursor_timeout=True)
+                return coll.find(filter=q, projection=projection, sort=sort, batch_size=batch_size)
 
             cursor = make_cursor(query)
             buf: List[Dict[str, Any]] = []
@@ -103,43 +103,70 @@ class MongoDBConnector:
         async with self.resource(coll_name) as coll:
 
             try:
-                cursor = coll.find(filter=query, projection=projection, sort=sort, batch_size=batch_size, no_cursor_timeout=True)
+                cursor = coll.find(filter=query, projection=projection, sort=sort, batch_size=batch_size)
                 return [doc async for doc in cursor]
 
             except AutoReconnect:
                 await asyncio.sleep(0.5)
-                cursor = coll.find(filter=query, projection=projection, sort=sort, batch_size=batch_size, no_cursor_timeout=True)
+                cursor = coll.find(filter=query, projection=projection, sort=sort, batch_size=batch_size)
                 if batch_size: cursor = cursor.batch_size(batch_size)
                 return [doc async for doc in cursor]
 
     @staticmethod
     async def _flush(coll, ops):
 
+        def summarise_bwe(bulk_we: BulkWriteError, ops_list):
+
+            details = bulk_we.details or {}
+            write_errors = details.get("writeErrors", [])
+
+            total = len(write_errors)
+            codes = sorted({e.get("code") for e in write_errors})
+
+            lines = [
+                f"BulkWriteError: {total} write error(s)",
+                f"Error codes: {codes}",
+            ]
+
+            for e in write_errors:
+
+                idx = e.get("index")
+                code = e.get("code")
+                msg = e.get("errmsg", "").split("\n")[0]
+
+                filt = None
+                if idx is not None and idx < len(ops_list):
+                    filt = getattr(ops_list[idx], "_filter", None)
+
+                lines.append(
+                    f"  - idx={idx}, code={code}, msg='{msg}', filter={filt}"
+                )
+
+            return "\n".join(lines)
+
         try:
             await coll.bulk_write(ops, ordered=False)
 
         except BulkWriteError as bwe:
-            codes = {e.get("code") for e in (bwe.details or {}).get("writeErrors", [])}
+
+            errs    = (bwe.details or {}).get("writeErrors", [])
+            codes   = {e.get("code") for e in errs}
+
             if codes & {6, 7, 89, 91, 189, 9001}:
                 await asyncio.sleep(0.5)
                 await coll.bulk_write(ops, ordered=False)
+                return
+
+            raise RuntimeError(summarise_bwe(bwe, ops)) from None
 
         except AutoReconnect:
             await asyncio.sleep(0.5)
             await coll.bulk_write(ops, ordered=False)
+            return
 
     @staticmethod
-    def _fingerprint(obj, fields: Optional[List[str]]=None):
-
-        if fields is None:
-            return None
-
-        clean = {k:v for k,v in obj.items() if k in fields}
-
-        blob = json.dumps(
-            clean, sort_keys=True, indent=4, separators=(',', ': '), default=str
-        ).encode()
-
+    def _fingerprint(obj):
+        blob = json.dumps(obj, sort_keys=True, separators=(',', ':'), default=str).encode()
         return hashlib.sha1(blob).hexdigest()
 
     async def upsert_documents_hashed(
@@ -148,7 +175,6 @@ class MongoDBConnector:
             coll_name   : str,
             records     : List[Dict[str, Any]],
             id_fields   : Optional[List[str]]=None,
-            fields      : Optional[List[str]] = None,
             batch_size  : Optional[int] = 500
 
     ) -> None:
@@ -170,26 +196,30 @@ class MongoDBConnector:
                     for f in id_fields:
                         _id += item.get(f)
 
-                try:
-                    to_insert.pop("doc_hash"); to_insert.pop('utime') ; to_insert.pop('ctime')
-                except KeyError:
-                    pass
+                to_insert.pop("doc_hash", None); to_insert.pop('utime', None) ; to_insert.pop('ctime', None)
 
-                h = await asyncio.to_thread(self._fingerprint, to_insert, fields)
+                h = await asyncio.to_thread(self._fingerprint, to_insert)
+
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
                 op = UpdateOne(
-                    {
-                        "_id": _id,
-                        "$or" : [
-                            {"doc_hash": {"$ne": h}},
-                            {"doc_hash" : {"$exists" : False}}
-                        ]
-
-                    },
-                    {
-                        "$set" : {**to_insert, "doc_hash" : h, "utime": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
-                        "$setOnInsert": {"ctime": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-                    },
+                    {"_id": _id},
+                    [
+                        {
+                            "$set": {
+                                **to_insert,
+                                "doc_hash": h,
+                                "utime": {
+                                    "$cond": [
+                                        {"$ne": ["$doc_hash", h]},
+                                        now_str,
+                                        "$utime"
+                                    ]
+                                },
+                                "ctime": {"$ifNull": ["$ctime", now_str]},
+                            }
+                        }
+                    ],
                     upsert=True
                 )
 

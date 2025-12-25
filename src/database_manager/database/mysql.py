@@ -32,7 +32,7 @@ class SQLDBConnector:
         try:
             tunnel.start()
             local_bind_port = tunnel.local_bind_port
-            print(f"SSH TUNNEL STARTED ON PORT {local_bind_port}")
+            # print(f"SSH TUNNEL STARTED ON PORT {local_bind_port}")
             yield local_bind_port
 
         finally:
