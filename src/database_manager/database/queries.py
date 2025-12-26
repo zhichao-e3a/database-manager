@@ -50,6 +50,21 @@ AND uu.mobile IN ({numbers})
 AND r.start_ts BETWEEN UNIX_TIMESTAMP({start}) AND UNIX_TIMESTAMP({end})
 """
 
+HISTORICAL_METADATA_QUERY =  """
+SELECT
+u.mobile,
+uu.age,
+uu.height,
+uu.old_weight,
+mm.record_type,
+mm.record_answer,
+uu.end_born_ts
+FROM extant_future_user.user AS u
+JOIN extant_future_user.user_detail AS uu ON u.id = uu.uid
+LEFT JOIN extant_future_user.medical_record AS mm ON uu.uid = mm.user_id AND mm.record_type IN (1, 2, 4, 5, 8, 13)
+WHERE u.mobile IN ({mobile_query_str})
+"""
+
 RECRUITED_PATIENTS_QUERY = """
 SELECT
 uu.mobile,
@@ -58,8 +73,8 @@ r.basic_info,
 r.conclusion
 FROM extant_future_user.user AS uu
 JOIN extant_future_data.origin_data_record AS r
-ON u.id = r.user_id
-WHERE u.mobile
+ON uu.id = r.user_id
+WHERE uu.mobile
 IN ({mobile_query_str})
 """
 

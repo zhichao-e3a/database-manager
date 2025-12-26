@@ -1,6 +1,7 @@
 import json
 import hashlib
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from contextlib import asynccontextmanager
 from typing import Dict, Any, List, AsyncIterator, Optional, Tuple
 
@@ -200,7 +201,7 @@ class MongoDBConnector:
 
                 h = await asyncio.to_thread(self._fingerprint, to_insert)
 
-                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                now_str = datetime.now(ZoneInfo("Asia/Singapore")).strftime("%Y-%m-%d %H:%M:%S")
 
                 op = UpdateOne(
                     {"_id": _id},
