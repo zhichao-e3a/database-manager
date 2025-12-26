@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "database-manager"
-version = "0.2.0"
+version = "0.2.1"
 description = "Database connectors for MongoDB and SQL (via SSH tunnel)"
 readme = "README.md"
 requires-python = ">=3.10"

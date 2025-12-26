@@ -76,11 +76,13 @@ python -m build
 pip install dist/database_manager-<version>-py3-none-any.whl
 ```
 
-### 🔄 Versioning & Updates
+### 🔄 Versioning & Updates (for subsequent changes)
 
-1. Update the version number in `pyproject.toml`
-2. Commit the change
-3. Build the new package and install the new version where needed
+1. Stage and commit the changes
+2. Update `pyproject.toml` version
+3. Create new version tag
+4. Push the changes and new tag
+5. Build the new package and install the new version where needed
 
 ### 🔌 MongoDBConnector Usage
 
