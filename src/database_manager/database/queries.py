@@ -1,4 +1,4 @@
-HISTORICAL = """
+REBUILD_HISTORICAL = """
 SELECT
 uu.mobile,
 r.id,
@@ -24,7 +24,6 @@ AND r.contraction_url <> ''
 AND r.hb_baby_url <> ''
 AND tt.end_born_ts IS NOT NULL
 AND tt.end_born_ts <> 0
-AND r.utime > '{last_utime}'
 """
 
 RECRUITED = """

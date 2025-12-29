@@ -27,6 +27,51 @@ class MongoDBConnector:
 
         yield coll
 
+    async def get_one_document(
+
+            self,
+            coll_name   : str,
+            query       : dict,
+            projection  : Optional[dict] = None,
+            sort        : Optional[List[tuple]] = None,
+
+    ) -> Optional[dict]:
+
+        async with self.resource(coll_name) as coll:
+
+            cursor  = coll.find(query, projection)
+
+            if sort:
+                cursor = cursor.sort(sort)
+
+            doc = await cursor.limit(1).to_list(length=1)
+
+            return doc[0] if doc else None
+
+    async def patch_document(
+
+            self,
+            coll_name       : str,
+            query           : dict,
+            set_fields      : Dict[str, Any],
+            upsert          : bool = False,
+            projection      : Optional[dict] = None
+
+    ) -> Optional[dict]:
+
+        update: Dict[str, Any] = {"$set": set_fields}
+
+        async with self.resource(coll_name) as coll:
+
+            doc = await coll.find_one_and_update(
+                filter      = query,
+                update      = update,
+                projection  = projection,
+                upsert      = upsert
+            )
+
+        return doc
+
     async def stream_all_documents(
 
             self,
