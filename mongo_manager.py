@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from pymongo import MongoClient
 
 load_dotenv('config/.env')
-URI = os.getenv("URI")
+URI = os.getenv("MONGO_URL_E3A")
 SYSTEM_DBS = {"admin", "local", "config"}
 
 def transfer_database(source_uri: str, target_uri: str, db: str,):
