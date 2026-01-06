@@ -57,6 +57,7 @@ uu.height,
 uu.old_weight,
 mm.record_type,
 mm.record_answer,
+uu.expected_born_date,
 uu.end_born_ts
 FROM extant_future_user.user AS u
 JOIN extant_future_user.user_detail AS uu ON u.id = uu.uid
