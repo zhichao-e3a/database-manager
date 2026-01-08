@@ -1,81 +1,83 @@
 REBUILD_HISTORICAL = """
 SELECT
 uu.mobile,
-r.id,
-r.start_ts,
-r.start_test_ts,
-r.contraction_url,
-r.hb_baby_url,
-r.raw_fetal_url,
-r.basic_info,
-r.conclusion,
-tt.expected_born_date,
-tt.end_born_ts,
-r.utime
-FROM
-extant_future_user.user AS uu
-INNER JOIN
-extant_future_data.origin_data_record AS r
-ON uu.id = r.user_id
-INNER JOIN
-extant_future_user.user_detail AS tt
-ON uu.id = tt.uid
-AND r.contraction_url <> ''
-AND r.hb_baby_url <> ''
-AND tt.end_born_ts IS NOT NULL
-AND tt.end_born_ts <> 0
+rr.id,
+rr.start_ts,
+rr.start_test_ts,
+rr.contraction_url,
+rr.hb_baby_url,
+rr.raw_fetal_url,
+rr.basic_info,
+rr.conclusion,
+dd.end_born_ts,
+rr.utime
+FROM extant_future_user.user AS uu
+INNER JOIN extant_future_data.origin_data_record AS rr ON uu.id = rr.user_id
+INNER JOIN extant_future_user.user_detail AS dd ON uu.id = dd.uid
+AND rr.contraction_url <> ''
+AND rr.hb_baby_url <> ''
+AND dd.end_born_ts IS NOT NULL
+AND dd.end_born_ts <> 0
 """
 
 RECRUITED = """
 SELECT
 uu.mobile,
-r.id,
-r.start_ts,
-r.start_test_ts,
-r.contraction_url,
-r.hb_baby_url,
-r.raw_fetal_url,
-r.basic_info,
-r.conclusion,
-r.utime
-FROM
-extant_future_user.user AS uu
-INNER JOIN
-origin_data_record AS r
-ON uu.id = r.user_id
-AND r.contraction_url <> ''
-AND r.hb_baby_url <> ''
+rr.id,
+rr.start_ts,
+rr.start_test_ts,
+rr.contraction_url,
+rr.hb_baby_url,
+rr.raw_fetal_url,
+rr.basic_info,
+rr.conclusion,
+rr.utime
+FROM extant_future_user.user AS uu
+INNER JOIN origin_data_record AS rr ON uu.id = rr.user_id
+AND rr.contraction_url <> ''
+AND rr.hb_baby_url <> ''
 AND uu.mobile IN ({numbers})
-AND r.start_ts BETWEEN UNIX_TIMESTAMP({start}) AND UNIX_TIMESTAMP({end})
+AND rr.start_ts BETWEEN UNIX_TIMESTAMP({start}) AND UNIX_TIMESTAMP({end})
 """
 
 HISTORICAL_METADATA_QUERY =  """
 SELECT
-u.mobile,
-uu.age,
-uu.height,
-uu.old_weight,
+hp.mobile,
+dd.age,
+dd.height,
+dd.old_weight,
 mm.record_type,
 mm.record_answer,
-uu.expected_born_date,
-uu.end_born_ts
-FROM extant_future_user.user AS u
-JOIN extant_future_user.user_detail AS uu ON u.id = uu.uid
-LEFT JOIN extant_future_user.medical_record AS mm ON uu.uid = mm.user_id AND mm.record_type IN (1, 2, 4, 5, 8, 13)
-WHERE u.mobile IN ({mobile_query_str})
+dd.expected_born_date,
+dd.end_born_ts
+FROM (
+    SELECT DISTINCT
+    uu.mobile,
+    uu.id AS user_id
+    FROM extant_future_user.user AS uu
+    INNER JOIN extant_future_data.origin_data_record AS rr ON uu.id = rr.user_id
+    INNER JOIN extant_future_user.user_detail AS dd ON uu.id = dd.uid
+    WHERE
+    rr.contraction_url <> ''
+    AND rr.hb_baby_url <> ''
+    AND dd.end_born_ts IS NOT NULL
+    AND dd.end_born_ts <> 0
+) AS hp
+JOIN extant_future_user.user_detail AS dd ON hp.user_id = dd.uid
+LEFT JOIN extant_future_user.medical_record AS mm ON dd.uid = mm.user_id
+AND mm.record_type IN (1, 2, 4, 5, 8, 13)
 """
 
 RECRUITED_PATIENTS_QUERY = """
 SELECT
 uu.mobile,
-FROM_UNIXTIME(r.start_ts) AS m_time,
-r.basic_info,
-r.conclusion
+FROM_UNIXTIME(rr.start_ts) AS m_time,
+rr.basic_info,
+rr.conclusion
 FROM extant_future_user.user AS uu
-JOIN extant_future_data.origin_data_record AS r
-ON uu.id = r.user_id
-WHERE uu.mobile
-IN ({mobile_query_str})
+JOIN extant_future_data.origin_data_record AS rr ON uu.id = rr.user_id
+AND uu.mobile IN ({numbers})
+AND rr.start_ts BETWEEN UNIX_TIMESTAMP({start}) AND UNIX_TIMESTAMP({end})
 """
 
 HISTORICAL_PATIENTS_QUERY = """
@@ -122,5 +124,5 @@ LEFT JOIN extant_future_user.medical_record AS mm ON oo.user_id = mm.user_id AND
 WHERE
 u.mobile
 IN
-({mobile_query_str})
+({numbers})
 """
